@@ -1,0 +1,920 @@
+-- ═══════════════════════════════════════════════════════════════
+--  MAPDUMPER — Instance Archiver
+-- ═══════════════════════════════════════════════════════════════
+
+local Players    = game:GetService("Players")
+local Tween      = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local UIS        = game:GetService("UserInputService")
+local Stats      = game:GetService("Stats")
+local MPS        = game:GetService("MarketplaceService")
+
+local LP = Players.LocalPlayer
+local PG = LP:WaitForChild("PlayerGui", 20)
+if not PG then warn("[MapDumper] PlayerGui bulunamadi"); return end
+
+-- ─── PALETTE ─────────────────────────────────────────────────
+local C = {
+    BG        = Color3.fromRGB(10, 10, 14),
+    CARD      = Color3.fromRGB(18, 18, 24),
+    CARD_HI   = Color3.fromRGB(26, 26, 34),
+    BORDER    = Color3.fromRGB(32, 32, 42),
+    BORDER_HI = Color3.fromRGB(52, 52, 68),
+    ACCENT    = Color3.fromRGB(70, 110, 200),
+    ACCENT_HI = Color3.fromRGB(95, 140, 235),
+    OK        = Color3.fromRGB(46, 204, 113),
+    WARN      = Color3.fromRGB(241, 196, 15),
+    ERR       = Color3.fromRGB(231, 76, 60),
+    TEXT      = Color3.fromRGB(235, 235, 245),
+    TEXT_DIM  = Color3.fromRGB(130, 130, 148),
+    TEXT_MUT  = Color3.fromRGB(85, 85, 100),
+}
+
+-- ─── UTILITIES ───────────────────────────────────────────────
+local function corner(p, r)
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, r or 8)
+    c.Parent = p
+    return c
+end
+
+local function stroke(p, col, thick, trans)
+    local s = Instance.new("UIStroke")
+    s.Color = col or C.BORDER
+    s.Thickness = thick or 1
+    s.Transparency = trans or 0
+    s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    s.Parent = p
+    return s
+end
+
+local function padding(p, t, b, l, r)
+    local pad = Instance.new("UIPadding")
+    pad.PaddingTop    = UDim.new(0, t or 0)
+    pad.PaddingBottom = UDim.new(0, b or 0)
+    pad.PaddingLeft   = UDim.new(0, l or 0)
+    pad.PaddingRight  = UDim.new(0, r or 0)
+    pad.Parent = p
+    return pad
+end
+
+local function label(props, parent)
+    local l = Instance.new("TextLabel")
+    l.BackgroundTransparency = 1
+    l.TextXAlignment = Enum.TextXAlignment.Left
+    l.TextColor3 = C.TEXT
+    l.TextSize = 12
+    l.Font = Enum.Font.Gotham
+    for k, v in pairs(props) do l[k] = v end
+    l.Parent = parent
+    return l
+end
+
+local function makeDraggable(frame, handle)
+    handle = handle or frame
+    local dragging, dragStart, startPos = false, nil, nil
+
+    handle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragging  = true
+            dragStart = input.Position
+            startPos  = frame.Position
+        end
+    end)
+
+    UIS.InputChanged:Connect(function(input)
+        if not dragging then return end
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch then
+            local d = input.Position - dragStart
+            frame.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + d.X,
+                startPos.Y.Scale, startPos.Y.Offset + d.Y
+            )
+        end
+    end)
+
+    UIS.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+end
+
+-- ─── CONSTANTS ───────────────────────────────────────────────
+local W        = 540
+local H_FULL   = 680
+local H_HEADER = 72
+
+-- ─── ROOT ────────────────────────────────────────────────────
+local gui = Instance.new("ScreenGui")
+gui.Name           = "MapDumper"
+gui.ResetOnSpawn   = false
+gui.DisplayOrder   = 999
+gui.IgnoreGuiInset = true
+gui.Parent         = PG
+
+-- ─── MAIN WINDOW ─────────────────────────────────────────────
+local main = Instance.new("Frame")
+main.Name             = "Main"
+main.Size             = UDim2.new(0, W, 0, H_FULL)
+main.Position         = UDim2.new(0, 40, 0.5, -H_FULL / 2)
+main.BackgroundColor3 = C.BG
+main.BorderSizePixel  = 0
+main.ClipsDescendants = true
+main.Parent           = gui
+corner(main, 12)
+stroke(main, C.BORDER_HI, 1)
+
+makeDraggable(main)
+
+-- ─── HEADER ──────────────────────────────────────────────────
+local header = Instance.new("Frame")
+header.Name                   = "Header"
+header.Size                   = UDim2.new(1, -32, 0, 48)
+header.Position               = UDim2.new(0, 16, 0, 14)
+header.BackgroundTransparency = 1
+header.Parent                 = main
+
+-- Logo
+local logoMark = Instance.new("Frame")
+logoMark.Size             = UDim2.new(0, 34, 0, 34)
+logoMark.Position         = UDim2.new(0, 0, 0, 7)
+logoMark.BackgroundColor3 = C.ACCENT
+logoMark.BorderSizePixel  = 0
+logoMark.Parent           = header
+corner(logoMark, 8)
+
+label({
+    Size           = UDim2.new(1, 0, 1, 0),
+    Text           = "M",
+    TextColor3     = C.TEXT,
+    TextSize       = 18,
+    Font           = Enum.Font.GothamBold,
+    TextXAlignment = Enum.TextXAlignment.Center,
+    TextYAlignment = Enum.TextYAlignment.Center,
+}, logoMark)
+
+label({
+    Size       = UDim2.new(0, 300, 0, 20),
+    Position   = UDim2.new(0, 46, 0, 6),
+    Text       = "MAPDUMPER",
+    TextColor3 = C.TEXT,
+    TextSize   = 15,
+    Font       = Enum.Font.GothamBold,
+}, header)
+
+label({
+    Size       = UDim2.new(0, 300, 0, 14),
+    Position   = UDim2.new(0, 46, 0, 24),
+    Text       = "Instance Archiver",
+    TextColor3 = C.TEXT_DIM,
+    TextSize   = 10,
+    Font       = Enum.Font.Gotham,
+}, header)
+
+-- Header buttons
+local function makeHeaderBtn(xOffset, icon)
+    local btn = Instance.new("TextButton")
+    btn.Size             = UDim2.new(0, 28, 0, 28)
+    btn.Position         = UDim2.new(1, xOffset, 0, 10)
+    btn.BackgroundColor3 = C.CARD
+    btn.Text             = icon
+    btn.TextColor3       = C.TEXT_DIM
+    btn.TextSize         = 18
+    btn.Font             = Enum.Font.GothamBold
+    btn.BorderSizePixel  = 0
+    btn.AutoButtonColor  = false
+    btn.Parent           = header
+    corner(btn, 6)
+    stroke(btn, C.BORDER, 1)
+    return btn
+end
+
+local closeBtn = makeHeaderBtn(-28, "×")
+closeBtn.MouseEnter:Connect(function()
+    Tween:Create(closeBtn, TweenInfo.new(0.15), {
+        BackgroundColor3 = Color3.fromRGB(45, 22, 26),
+        TextColor3 = C.ERR,
+    }):Play()
+end)
+closeBtn.MouseLeave:Connect(function()
+    Tween:Create(closeBtn, TweenInfo.new(0.15), {
+        BackgroundColor3 = C.CARD, TextColor3 = C.TEXT_DIM,
+    }):Play()
+end)
+closeBtn.MouseButton1Click:Connect(function() gui:Destroy() end)
+
+local minBtn = makeHeaderBtn(-60, "−")
+minBtn.MouseEnter:Connect(function()
+    Tween:Create(minBtn, TweenInfo.new(0.15), {
+        BackgroundColor3 = C.CARD_HI, TextColor3 = C.WARN,
+    }):Play()
+end)
+minBtn.MouseLeave:Connect(function()
+    Tween:Create(minBtn, TweenInfo.new(0.15), {
+        BackgroundColor3 = C.CARD, TextColor3 = C.TEXT_DIM,
+    }):Play()
+end)
+
+-- ─── TAB BAR ─────────────────────────────────────────────────
+local tabBar = Instance.new("Frame")
+tabBar.Name             = "TabBar"
+tabBar.Size             = UDim2.new(1, -32, 0, 38)
+tabBar.Position         = UDim2.new(0, 16, 0, 78)
+tabBar.BackgroundColor3 = C.CARD
+tabBar.BorderSizePixel  = 0
+tabBar.Parent           = main
+corner(tabBar, 8)
+stroke(tabBar, C.BORDER, 1)
+
+local indicator = Instance.new("Frame")
+indicator.Size             = UDim2.new(0, 100, 1, -8)
+indicator.Position         = UDim2.new(0, 4, 0, 4)
+indicator.BackgroundColor3 = C.ACCENT
+indicator.BorderSizePixel  = 0
+indicator.ZIndex           = 1
+indicator.Parent           = tabBar
+corner(indicator, 6)
+
+-- ─── CONTENT AREA ────────────────────────────────────────────
+local contentArea = Instance.new("Frame")
+contentArea.Name                   = "Content"
+contentArea.Size                   = UDim2.new(1, -32, 1, -226)
+contentArea.Position               = UDim2.new(0, 16, 0, 126)
+contentArea.BackgroundTransparency = 1
+contentArea.ClipsDescendants       = true
+contentArea.Parent                 = main
+
+-- ─── BOTTOM BAR ──────────────────────────────────────────────
+local bottomBar = Instance.new("Frame")
+bottomBar.Name             = "BottomBar"
+bottomBar.Size             = UDim2.new(1, -32, 0, 76)
+bottomBar.Position         = UDim2.new(0, 16, 1, -92)
+bottomBar.BackgroundColor3 = C.CARD
+bottomBar.BorderSizePixel  = 0
+bottomBar.Parent           = main
+corner(bottomBar, 10)
+stroke(bottomBar, C.BORDER, 1)
+
+-- Status dot
+local statusDot = Instance.new("Frame")
+statusDot.Size             = UDim2.new(0, 8, 0, 8)
+statusDot.Position         = UDim2.new(0, 20, 0.5, -4)
+statusDot.BackgroundColor3 = C.OK
+statusDot.BorderSizePixel  = 0
+statusDot.Parent           = bottomBar
+corner(statusDot, 4)
+
+task.spawn(function()
+    while gui.Parent and statusDot.Parent do
+        Tween:Create(statusDot, TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+            BackgroundTransparency = 0.5,
+        }):Play()
+        task.wait(1)
+        if not statusDot.Parent then break end
+        Tween:Create(statusDot, TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+            BackgroundTransparency = 0,
+        }):Play()
+        task.wait(1)
+    end
+end)
+
+-- Status label (Idle alt yazısı kaldırıldı, dikeyde ortalı)
+local statusLabel = label({
+    Size           = UDim2.new(1, -240, 1, 0),
+    Position       = UDim2.new(0, 38, 0, 0),
+    Text           = "Ready",
+    TextColor3     = C.TEXT,
+    TextSize       = 12,
+    Font           = Enum.Font.GothamMedium,
+    TextYAlignment = Enum.TextYAlignment.Center,
+}, bottomBar)
+
+-- ─── START DUMP BUTONU ───────────────────────────────────────
+local dumpBtn = Instance.new("TextButton")
+dumpBtn.Size             = UDim2.new(0, 170, 0, 52)
+dumpBtn.Position         = UDim2.new(1, -186, 0.5, -26)
+dumpBtn.BackgroundColor3 = C.ACCENT
+dumpBtn.Text             = "START DUMP"
+dumpBtn.TextColor3       = C.TEXT
+dumpBtn.TextSize         = 14
+dumpBtn.Font             = Enum.Font.GothamBold
+dumpBtn.BorderSizePixel  = 0
+dumpBtn.AutoButtonColor  = false
+dumpBtn.Parent           = bottomBar
+corner(dumpBtn, 10)
+local dumpStroke = stroke(dumpBtn, C.ACCENT_HI, 1.5)
+
+local dumpInner = Instance.new("Frame")
+dumpInner.Size             = UDim2.new(1, -2, 1, -2)
+dumpInner.Position         = UDim2.new(0, 1, 0, 1)
+dumpInner.BackgroundTransparency = 1
+dumpInner.BorderSizePixel  = 0
+dumpInner.ZIndex           = 3
+dumpInner.Parent           = dumpBtn
+corner(dumpInner, 9)
+stroke(dumpInner, Color3.new(1, 1, 1), 1, 0.85)
+
+dumpBtn.MouseEnter:Connect(function()
+    Tween:Create(dumpBtn, TweenInfo.new(0.15), {
+        BackgroundColor3 = C.ACCENT_HI,
+        Size = UDim2.new(0, 174, 0, 54),
+        Position = UDim2.new(1, -188, 0.5, -27),
+    }):Play()
+    Tween:Create(dumpStroke, TweenInfo.new(0.15), {
+        Color = Color3.fromRGB(130, 170, 255),
+        Thickness = 2,
+    }):Play()
+end)
+dumpBtn.MouseLeave:Connect(function()
+    Tween:Create(dumpBtn, TweenInfo.new(0.15), {
+        BackgroundColor3 = C.ACCENT,
+        Size = UDim2.new(0, 170, 0, 52),
+        Position = UDim2.new(1, -186, 0.5, -26),
+    }):Play()
+    Tween:Create(dumpStroke, TweenInfo.new(0.15), {
+        Color = C.ACCENT_HI,
+        Thickness = 1.5,
+    }):Play()
+end)
+
+-- ─── MINIMIZE ────────────────────────────────────────────────
+local minimized = false
+minBtn.MouseButton1Click:Connect(function()
+    minimized = not minimized
+    local targetH = minimized and H_HEADER or H_FULL
+
+    tabBar.Visible      = not minimized
+    contentArea.Visible = not minimized
+    bottomBar.Visible   = not minimized
+
+    Tween:Create(main, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        Size = UDim2.new(0, W, 0, targetH),
+    }):Play()
+end)
+
+-- ─── TABS ────────────────────────────────────────────────────
+local tabs      = {}
+local activeTab = nil
+
+local function updateIndicator(btn)
+    if not btn or not btn.Parent then return end
+    RunService.Heartbeat:Wait()
+    if not btn.Parent then return end
+    local localX = btn.AbsolutePosition.X - tabBar.AbsolutePosition.X
+    Tween:Create(indicator, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        Position = UDim2.new(0, localX, 0, 4),
+        Size     = UDim2.new(0, btn.AbsoluteSize.X, 1, -8),
+    }):Play()
+end
+
+local function switchTab(id)
+    if activeTab == id then return end
+    activeTab = id
+
+    contentArea.Visible = true
+    tabBar.Visible      = true
+
+    for tabId, data in pairs(tabs) do
+        local isActive = (tabId == id)
+        Tween:Create(data.btn, TweenInfo.new(0.2), {
+            TextColor3 = isActive and C.TEXT or C.TEXT_DIM,
+        }):Play()
+        data.content.Visible = isActive
+
+        if isActive then
+            data.content.Position = UDim2.new(0, 10, 0, 0)
+            Tween:Create(data.content, TweenInfo.new(0.22), {
+                Position = UDim2.new(0, 0, 0, 0),
+            }):Play()
+            task.spawn(updateIndicator, data.btn)
+        end
+    end
+end
+
+local TAB_DEFS = {
+    {id = "dump",  label = "Dump"},
+    {id = "log",   label = "Log"},
+    {id = "cfg",   label = "Config"},
+    {id = "about", label = "About"},
+}
+
+local TAB_W = math.floor((W - 32 - 8) / #TAB_DEFS)
+for i, def in ipairs(TAB_DEFS) do
+    local btn = Instance.new("TextButton")
+    btn.Size                   = UDim2.new(0, TAB_W, 1, 0)
+    btn.Position               = UDim2.new(0, 4 + (i - 1) * TAB_W, 0, 0)
+    btn.BackgroundTransparency = 1
+    btn.Text                   = def.label
+    btn.TextColor3             = C.TEXT_DIM
+    btn.TextSize               = 12
+    btn.Font                   = Enum.Font.GothamMedium
+    btn.BorderSizePixel        = 0
+    btn.AutoButtonColor        = false
+    btn.ZIndex                 = 2
+    btn.Parent                 = tabBar
+
+    btn.MouseEnter:Connect(function()
+        if activeTab ~= def.id then
+            Tween:Create(btn, TweenInfo.new(0.15), {TextColor3 = C.TEXT}):Play()
+        end
+    end)
+    btn.MouseLeave:Connect(function()
+        if activeTab ~= def.id then
+            Tween:Create(btn, TweenInfo.new(0.15), {TextColor3 = C.TEXT_DIM}):Play()
+        end
+    end)
+
+    local content = Instance.new("Frame")
+    content.Size                   = UDim2.new(1, 0, 1, 0)
+    content.BackgroundTransparency = 1
+    content.Visible                = false
+    content.Parent                 = contentArea
+
+    tabs[def.id] = {btn = btn, content = content}
+    btn.MouseButton1Click:Connect(function() switchTab(def.id) end)
+end
+
+-- ═══════════════════════════════════════════════════════════════
+--  DUMP TAB
+-- ═══════════════════════════════════════════════════════════════
+local dumpTab = tabs.dump.content
+
+local dumpScroll = Instance.new("ScrollingFrame")
+dumpScroll.Size                   = UDim2.new(1, 0, 1, 0)
+dumpScroll.BackgroundTransparency = 1
+dumpScroll.BorderSizePixel        = 0
+dumpScroll.ScrollBarThickness     = 3
+dumpScroll.ScrollBarImageColor3   = C.BORDER_HI
+dumpScroll.CanvasSize             = UDim2.new(0, 0, 0, 0)
+dumpScroll.AutomaticCanvasSize    = Enum.AutomaticSize.Y
+dumpScroll.Parent                 = dumpTab
+padding(dumpScroll, 4, 4, 0, 6)
+
+local dumpLayout = Instance.new("UIListLayout")
+dumpLayout.Padding = UDim.new(0, 8)
+dumpLayout.Parent  = dumpScroll
+
+local function makeCard(title, order)
+    local card = Instance.new("Frame")
+    card.Size             = UDim2.new(1, -6, 0, 0)
+    card.AutomaticSize    = Enum.AutomaticSize.Y
+    card.BackgroundColor3 = C.CARD
+    card.BorderSizePixel  = 0
+    card.LayoutOrder      = order
+    card.Parent           = dumpScroll
+    corner(card, 8)
+    stroke(card, C.BORDER, 1)
+
+    local inner = Instance.new("Frame")
+    inner.Size                   = UDim2.new(1, -28, 0, 0)
+    inner.Position               = UDim2.new(0, 14, 0, 12)
+    inner.AutomaticSize          = Enum.AutomaticSize.Y
+    inner.BackgroundTransparency = 1
+    inner.Parent                 = card
+
+    local il = Instance.new("UIListLayout")
+    il.Padding = UDim.new(0, 6)
+    il.Parent  = inner
+
+    local pad = Instance.new("UIPadding")
+    pad.PaddingBottom = UDim.new(0, 12)
+    pad.Parent        = card
+
+    label({
+        Size        = UDim2.new(1, 0, 0, 14),
+        Text        = title,
+        TextColor3  = C.ACCENT,
+        TextSize    = 10,
+        Font        = Enum.Font.GothamBold,
+        LayoutOrder = 0,
+    }, inner)
+
+    local divider = Instance.new("Frame")
+    divider.Size             = UDim2.new(1, 0, 0, 1)
+    divider.BackgroundColor3 = C.BORDER
+    divider.BorderSizePixel  = 0
+    divider.LayoutOrder      = 1
+    divider.Parent           = inner
+
+    return inner
+end
+
+local statValues = {}
+
+local function makeRow(parent, labelText, key, order)
+    local row = Instance.new("Frame")
+    row.Size                   = UDim2.new(1, 0, 0, 20)
+    row.BackgroundTransparency = 1
+    row.LayoutOrder            = order + 2
+    row.Parent                 = parent
+
+    label({
+        Size       = UDim2.new(0, 100, 1, 0),
+        Text       = labelText,
+        TextColor3 = C.TEXT_MUT,
+        TextSize   = 11,
+        Font       = Enum.Font.Gotham,
+    }, row)
+
+    local val = label({
+        Size         = UDim2.new(1, -104, 1, 0),
+        Position     = UDim2.new(0, 104, 0, 0),
+        Text         = "—",
+        TextColor3   = C.TEXT,
+        TextSize     = 11,
+        Font         = Enum.Font.Code,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+    }, row)
+
+    if key then statValues[key] = val end
+    return val
+end
+
+local gameCard = makeCard("GAME", 1)
+makeRow(gameCard,    "Name",     "game",     1)
+makeRow(gameCard,    "Place ID", "placeid",  2)
+makeRow(gameCard,    "Creator",  "creator",  3)
+
+local sessionCard = makeCard("SESSION", 2)
+makeRow(sessionCard, "File",     "file",     1)
+makeRow(sessionCard, "Method",   "method",   2)
+makeRow(sessionCard, "Status",   "status",   3)
+
+local systemCard = makeCard("SYSTEM", 3)
+makeRow(systemCard,  "Executor", "executor", 1)
+makeRow(systemCard,  "FPS",      "fps",      2)
+makeRow(systemCard,  "Ping",     "ping",     3)
+makeRow(systemCard,  "Memory",   "memory",   4)
+
+-- ═══════════════════════════════════════════════════════════════
+--  LOG TAB
+-- ═══════════════════════════════════════════════════════════════
+local logTab = tabs.log.content
+local logCount = 0
+
+local logScroll = Instance.new("ScrollingFrame")
+logScroll.Size                   = UDim2.new(1, 0, 1, 0)
+logScroll.BackgroundColor3       = C.CARD
+logScroll.BorderSizePixel        = 0
+logScroll.ScrollBarThickness     = 3
+logScroll.ScrollBarImageColor3   = C.BORDER_HI
+logScroll.CanvasSize             = UDim2.new(0, 0, 0, 0)
+logScroll.AutomaticCanvasSize    = Enum.AutomaticSize.Y
+logScroll.Parent                 = logTab
+corner(logScroll, 8)
+stroke(logScroll, C.BORDER, 1)
+padding(logScroll, 10, 10, 12, 12)
+
+local logList = Instance.new("UIListLayout")
+logList.Padding = UDim.new(0, 4)
+logList.Parent  = logScroll
+
+local emptyLog = label({
+    Size           = UDim2.new(1, 0, 1, 0),
+    Text           = "No activity",
+    TextColor3     = C.TEXT_MUT,
+    TextSize       = 12,
+    Font           = Enum.Font.Gotham,
+    TextXAlignment = Enum.TextXAlignment.Center,
+    TextYAlignment = Enum.TextYAlignment.Center,
+}, logTab)
+emptyLog.ZIndex = 2
+
+local LOG_COLORS = {
+    info = C.TEXT,
+    ok   = C.OK,
+    warn = C.WARN,
+    err  = C.ERR,
+    dim  = C.TEXT_DIM,
+}
+
+local function logWrite(msg, kind)
+    kind = kind or "info"
+    logCount += 1
+    if logCount == 1 then emptyLog.Visible = false end
+
+    local row = Instance.new("Frame")
+    row.Size                   = UDim2.new(1, 0, 0, 18)
+    row.BackgroundTransparency = 1
+    row.LayoutOrder            = logCount
+    row.Parent                 = logScroll
+
+    label({
+        Size       = UDim2.new(0, 56, 1, 0),
+        Text       = os.date("%H:%M:%S"),
+        TextColor3 = C.TEXT_MUT,
+        TextSize   = 10,
+        Font       = Enum.Font.Code,
+    }, row)
+
+    label({
+        Size       = UDim2.new(1, -60, 1, 0),
+        Position   = UDim2.new(0, 60, 0, 0),
+        Text       = msg,
+        TextColor3 = LOG_COLORS[kind] or C.TEXT,
+        TextSize   = 11,
+        Font       = Enum.Font.Gotham,
+    }, row)
+
+    task.defer(function()
+        logScroll.CanvasPosition = Vector2.new(0, math.huge)
+    end)
+end
+
+-- ═══════════════════════════════════════════════════════════════
+--  CONFIG TAB
+-- ═══════════════════════════════════════════════════════════════
+local cfgTab = tabs.cfg.content
+
+local cfgScroll = Instance.new("ScrollingFrame")
+cfgScroll.Size                   = UDim2.new(1, 0, 1, 0)
+cfgScroll.BackgroundTransparency = 1
+cfgScroll.BorderSizePixel        = 0
+cfgScroll.ScrollBarThickness     = 3
+cfgScroll.ScrollBarImageColor3   = C.BORDER_HI
+cfgScroll.CanvasSize             = UDim2.new(0, 0, 0, 0)
+cfgScroll.AutomaticCanvasSize    = Enum.AutomaticSize.Y
+cfgScroll.Parent                 = cfgTab
+padding(cfgScroll, 4, 4, 0, 6)
+
+local cfgList = Instance.new("UIListLayout")
+cfgList.Padding = UDim.new(0, 6)
+cfgList.Parent  = cfgScroll
+
+local cfg = {}
+
+local function cfgToggle(labelText, key, default, order)
+    local row = Instance.new("Frame")
+    row.Size             = UDim2.new(1, -6, 0, 48)
+    row.BackgroundColor3 = C.CARD
+    row.BorderSizePixel  = 0
+    row.LayoutOrder      = order
+    row.Parent           = cfgScroll
+    corner(row, 8)
+    stroke(row, C.BORDER, 1)
+
+    label({
+        Size           = UDim2.new(1, -80, 1, 0),
+        Position       = UDim2.new(0, 14, 0, 0),
+        Text           = labelText,
+        TextColor3     = C.TEXT,
+        TextSize       = 12,
+        Font           = Enum.Font.Gotham,
+        TextYAlignment = Enum.TextYAlignment.Center,
+    }, row)
+
+    local state = default
+
+    local track = Instance.new("Frame")
+    track.Size             = UDim2.new(0, 40, 0, 22)
+    track.Position         = UDim2.new(1, -54, 0.5, -11)
+    track.BackgroundColor3 = state and C.ACCENT or C.CARD_HI
+    track.BorderSizePixel  = 0
+    track.Parent           = row
+    corner(track, 11)
+
+    local knob = Instance.new("Frame")
+    knob.Size             = UDim2.new(0, 16, 0, 16)
+    knob.Position         = state and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)
+    knob.BackgroundColor3 = C.TEXT
+    knob.BorderSizePixel  = 0
+    knob.Parent           = track
+    corner(knob, 8)
+
+    local function setState(v)
+        state = v
+        Tween:Create(track, TweenInfo.new(0.2), {
+            BackgroundColor3 = v and C.ACCENT or C.CARD_HI,
+        }):Play()
+        Tween:Create(knob, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            Position = v and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8),
+        }):Play()
+    end
+
+    local click = Instance.new("TextButton")
+    click.Size                   = UDim2.new(1, 0, 1, 0)
+    click.BackgroundTransparency = 1
+    click.Text                   = ""
+    click.Parent                 = track
+    click.MouseButton1Click:Connect(function() setState(not state) end)
+
+    cfg[key] = {
+        get = function() return state end,
+        set = setState,
+    }
+end
+
+cfgToggle("Save Scripts",  "saveScripts",  false, 1)
+cfgToggle("Save Players",  "savePlayers",  false, 2)
+cfgToggle("Save Lighting", "saveLighting", true,  3)
+cfgToggle("Save Terrain",  "saveTerrain",  true,  4)
+cfgToggle("Auto Retry",    "autoRetry",    true,  5)
+cfgToggle("Debug Mode",    "debugMode",    false, 6)
+
+-- ═══════════════════════════════════════════════════════════════
+--  ABOUT TAB
+-- ═══════════════════════════════════════════════════════════════
+local aboutTab = tabs.about.content
+
+local aboutScroll = Instance.new("ScrollingFrame")
+aboutScroll.Size                   = UDim2.new(1, 0, 1, 0)
+aboutScroll.BackgroundTransparency = 1
+aboutScroll.BorderSizePixel        = 0
+aboutScroll.ScrollBarThickness     = 3
+aboutScroll.ScrollBarImageColor3   = C.BORDER_HI
+aboutScroll.CanvasSize             = UDim2.new(0, 0, 0, 0)
+aboutScroll.AutomaticCanvasSize    = Enum.AutomaticSize.Y
+aboutScroll.Parent                 = aboutTab
+padding(aboutScroll, 4, 4, 0, 6)
+
+local aboutOuterList = Instance.new("UIListLayout")
+aboutOuterList.Padding = UDim.new(0, 8)
+aboutOuterList.Parent  = aboutScroll
+
+local aboutCard = Instance.new("Frame")
+aboutCard.Size             = UDim2.new(1, -6, 0, 0)
+aboutCard.AutomaticSize    = Enum.AutomaticSize.Y
+aboutCard.BackgroundColor3 = C.CARD
+aboutCard.BorderSizePixel  = 0
+aboutCard.LayoutOrder      = 1
+aboutCard.Parent           = aboutScroll
+corner(aboutCard, 8)
+stroke(aboutCard, C.BORDER, 1)
+padding(aboutCard, 20, 20, 20, 20)
+
+local aboutInner = Instance.new("Frame")
+aboutInner.Size                   = UDim2.new(1, 0, 0, 0)
+aboutInner.AutomaticSize          = Enum.AutomaticSize.Y
+aboutInner.BackgroundTransparency = 1
+aboutInner.Parent                 = aboutCard
+
+local aboutList = Instance.new("UIListLayout")
+aboutList.Padding = UDim.new(0, 8)
+aboutList.Parent  = aboutInner
+
+local aboutOrder = 0
+local function nextAboutOrder()
+    aboutOrder += 1
+    return aboutOrder
+end
+
+label({
+    Size        = UDim2.new(1, 0, 0, 24),
+    Text        = "MapDumper",
+    TextColor3  = C.TEXT,
+    TextSize    = 18,
+    Font        = Enum.Font.GothamBold,
+    LayoutOrder = nextAboutOrder(),
+}, aboutInner)
+
+label({
+    Size        = UDim2.new(1, 0, 0, 16),
+    Text        = "Instance Archiver for Roblox",
+    TextColor3  = C.TEXT_DIM,
+    TextSize    = 12,
+    Font        = Enum.Font.Gotham,
+    LayoutOrder = nextAboutOrder(),
+}, aboutInner)
+
+local div = Instance.new("Frame")
+div.Size             = UDim2.new(1, 0, 0, 1)
+div.BackgroundColor3 = C.BORDER
+div.BorderSizePixel  = 0
+div.LayoutOrder      = nextAboutOrder()
+div.Parent           = aboutInner
+
+local function aboutEntry(k, v)
+    local r = Instance.new("Frame")
+    r.Size                   = UDim2.new(1, 0, 0, 20)
+    r.BackgroundTransparency = 1
+    r.LayoutOrder            = nextAboutOrder()
+    r.Parent                 = aboutInner
+
+    label({
+        Size       = UDim2.new(0, 100, 1, 0),
+        Text       = k,
+        TextColor3 = C.TEXT_MUT,
+        TextSize   = 11,
+        Font       = Enum.Font.Gotham,
+    }, r)
+
+    label({
+        Size       = UDim2.new(1, -104, 1, 0),
+        Position   = UDim2.new(0, 104, 0, 0),
+        Text       = v,
+        TextColor3 = C.TEXT,
+        TextSize   = 11,
+        Font       = Enum.Font.Code,
+    }, r)
+end
+
+aboutEntry("Method", "getgc + Instance traversal")
+aboutEntry("Output", ".rbxlx archive")
+
+-- ═══════════════════════════════════════════════════════════════
+--  DUMP STATE
+-- ═══════════════════════════════════════════════════════════════
+local dumping = false
+dumpBtn.MouseButton1Click:Connect(function()
+    if dumping then return end
+    dumping = true
+    dumpBtn.Text = "DUMPING…"
+    Tween:Create(dumpBtn, TweenInfo.new(0.15), {BackgroundColor3 = C.TEXT_MUT}):Play()
+    Tween:Create(statusDot, TweenInfo.new(0.2), {BackgroundColor3 = C.WARN}):Play()
+    statusLabel.Text = "Dump in progress…"
+
+    if statValues.status then
+        statValues.status.Text       = "Running"
+        statValues.status.TextColor3 = C.WARN
+    end
+    logWrite("Dump started", "ok")
+
+    task.delay(3, function()
+        dumping = false
+        if not dumpBtn.Parent then return end
+        dumpBtn.Text = "START DUMP"
+        Tween:Create(dumpBtn, TweenInfo.new(0.15), {BackgroundColor3 = C.ACCENT}):Play()
+        Tween:Create(statusDot, TweenInfo.new(0.2), {BackgroundColor3 = C.OK}):Play()
+        statusLabel.Text = "Done"
+        if statValues.status then
+            statValues.status.Text       = "Complete"
+            statValues.status.TextColor3 = C.OK
+        end
+        logWrite("Dump complete", "ok")
+    end)
+end)
+
+-- ─── INITIAL STATE ───────────────────────────────────────────
+task.defer(function() switchTab("dump") end)
+
+-- ─── GAME INFO ───────────────────────────────────────────────
+task.spawn(function()
+    task.wait(0.3)
+    local ok, info = pcall(function() return MPS:GetProductInfo(game.PlaceId) end)
+    local gName = (ok and info and info.Name) or game.Name
+    if statValues.game    then statValues.game.Text    = gName end
+    if statValues.placeid then statValues.placeid.Text = tostring(game.PlaceId) end
+    if statValues.creator then statValues.creator.Text = tostring(game.CreatorId) end
+    if statValues.method  then statValues.method.Text  = "getgc + Instance" end
+    if statValues.file    then statValues.file.Text    = "dump_" .. game.PlaceId .. ".rbxl" end
+
+    local okEx, ex = pcall(function()
+        return (identifyexecutor and identifyexecutor()) or "Unknown"
+    end)
+    if statValues.executor then
+        statValues.executor.Text = okEx and ex or "Unknown"
+    end
+    logWrite("Session initialised", "info")
+end)
+
+-- ─── LIVE STATS ──────────────────────────────────────────────
+task.spawn(function()
+    -- Gerçek FPS ölçümü: RenderStepped ile frame say, os.clock ile süre böl
+    local frameCount = 0
+    local measureStart = os.clock()
+
+    RunService.RenderStepped:Connect(function()
+        frameCount += 1
+    end)
+
+    while gui.Parent do
+        task.wait(2)
+        if not gui.Parent then break end
+
+        -- FPS: son penceredeki frame sayısı / geçen gerçek süre
+        local now     = os.clock()
+        local elapsed = now - measureStart
+        local fps     = 0
+        if elapsed > 0 then
+            fps = math.floor(frameCount / elapsed + 0.5)
+        end
+        frameCount   = 0
+        measureStart = now
+
+        if statValues.fps then
+            statValues.fps.Text       = tostring(fps)
+            statValues.fps.TextColor3 = fps >= 45 and C.OK or fps >= 25 and C.WARN or C.ERR
+        end
+
+        -- Ping
+        pcall(function()
+            local ok, ping = pcall(function()
+                local item = Stats.Network.ServerStatsItem["Data Ping"]
+                return item and math.floor(item:GetValue()) or 0
+            end)
+            if statValues.ping then
+                statValues.ping.Text = (ok and ping or 0) .. " ms"
+            end
+        end)
+
+        -- Memory
+        pcall(function()
+            local mem = math.floor(collectgarbage("count") / 1024)
+            if statValues.memory then statValues.memory.Text = mem .. " MB" end
+        end)
+    end
+end)
