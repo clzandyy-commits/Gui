@@ -1,0 +1,140 @@
+-- MAPDUMPER CORE — workspace only, no scripts
+
+local function notify(m, k)
+    if _G.MapDumper and _G.MapDumper.Log then pcall(_G.MapDumper.Log, m, k) end
+end
+local function setStatus(t, c)
+    if _G.MapDumper and _G.MapDumper.SetStatus then pcall(_G.MapDumper.SetStatus, t, c) end
+end
+local function setStat(k, v)
+    if _G.MapDumper and _G.MapDumper.SetStat then pcall(_G.MapDumper.SetStat, k, v) end
+end
+local function finish(s, r)
+    if _G.MapDumper and _G.MapDumper.Finish then pcall(_G.MapDumper.Finish, s, r) end
+end
+
+local IGNORE = {
+    Script = true, LocalScript = true, ModuleScript = true,
+    Player = true, PlayerGui = true, PlayerScripts = true,
+    Backpack = true, StarterGear = true, Camera = true,
+}
+
+local function esc(s)
+    s = tostring(s)
+    return s:gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"):gsub('"', "&quot;"):gsub("'", "&apos;")
+end
+
+local function ser(v)
+    local t = typeof(v)
+    if t == "string" then return esc(v) end
+    if t == "number" or t == "boolean" then return tostring(v) end
+    if t == "Vector3" then return ("%f %f %f"):format(v.X, v.Y, v.Z) end
+    if t == "Vector2" then return ("%f %f"):format(v.X, v.Y) end
+    if t == "CFrame" then
+        local p = v.Position
+        local _, _, _, a, b, c, d, e, f, g, h, i = v:GetComponents()
+        return ("%f %f %f %f %f %f %f %f %f %f %f %f"):format(p.X, p.Y, p.Z, a, b, c, d, e, f, g, h, i)
+    end
+    if t == "Color3" then
+        return ("%d %d %d"):format(math.floor(v.R * 255 + 0.5), math.floor(v.G * 255 + 0.5), math.floor(v.B * 255 + 0.5))
+    end
+    if t == "UDim" then return ("%f %d"):format(v.Scale, v.Offset) end
+    if t == "UDim2" then return ("%f %d %f %d"):format(v.X.Scale, v.X.Offset, v.Y.Scale, v.Y.Offset) end
+    if t == "BrickColor" then return tostring(v.Number) end
+    if t == "EnumItem" then return esc(v.Name) end
+    if t == "Instance" then return esc(v:GetFullName()) end
+    return nil
+end
+
+local function writeInst(out, inst, depth)
+    if IGNORE[inst.ClassName] then return end
+    local ind = string.rep("  ", depth)
+    out[#out + 1] = ('%s<Item class="%s" referent="RBX%s">'):format(ind, esc(inst.ClassName), tostring(inst:GetDebugId()))
+    out[#out + 1] = ('%s  <Properties>'):format(ind)
+    out[#out + 1] = ('%s    <string name="Name">%s</string>'):format(ind, esc(inst.Name))
+
+    local ok, props = pcall(function()
+        local list = {}
+        for _, p in ipairs(inst:GetProperties()) do
+            local cat = p.Category
+            if cat ~= "Script" and cat ~= "Localization" and cat ~= "Data"
+            and p.Name ~= "Name" and p.Security ~= "RobloxSecurity" then
+                local okv, v = pcall(function() return inst[p.Name] end)
+                if okv then
+                    local sv = ser(v)
+                    if sv then list[#list + 1] = { name = p.Name, type = typeof(v), value = sv } end
+                end
+            end
+        end
+        return list
+    end)
+
+    if ok and props then
+        for _, pr in ipairs(props) do
+            local tag
+            if pr.type == "string" then tag = "string"
+            elseif pr.type == "number" then tag = "float"
+            elseif pr.type == "boolean" then tag = "bool"
+            elseif pr.type == "Vector3" then tag = "Vector3"
+            elseif pr.type == "Vector2" then tag = "Vector2"
+            elseif pr.type == "CFrame" then tag = "CoordinateFrame"
+            elseif pr.type == "Color3" then tag = "Color3uint8"
+            elseif pr.type == "UDim" then tag = "UDim"
+            elseif pr.type == "UDim2" then tag = "UDim2"
+            elseif pr.type == "BrickColor" then tag = "int"
+            elseif pr.type == "EnumItem" then tag = "token"
+            elseif pr.type == "Instance" then tag = "Ref"
+            end
+            if tag then
+                out[#out + 1] = ('%s    <%s name="%s">%s</%s>'):format(ind, tag, esc(pr.name), pr.value, tag)
+            end
+        end
+    end
+
+    out[#out + 1] = ('%s  </Properties>'):format(ind)
+    for _, ch in ipairs(inst:GetChildren()) do writeInst(out, ch, depth + 1) end
+    out[#out + 1] = ('%s</Item>'):format(ind)
+end
+
+local function main()
+    notify("Copy started", "ok")
+    setStatus("Dumping map...", Color3.fromRGB(241, 196, 15))
+
+    local fileName = "map_" .. tostring(game.PlaceId) .. "_" .. os.time() .. ".rbxmx"
+    setStat("file", fileName)
+    setStat("status", "Running")
+
+    local out = { '<?xml version="1.0" encoding="utf-8"?>', '<roblox version="4">' }
+    local t0 = os.clock()
+    local ok = pcall(function()
+        for _, ch in ipairs(workspace:GetChildren()) do writeInst(out, ch, 1) end
+    end)
+    out[#out + 1] = '</roblox>'
+
+    if not ok then
+        notify("Serialize error", "err")
+        setStatus("Error", Color3.fromRGB(231, 76, 60))
+        setStat("status", "Failed")
+        finish(false, "serialize")
+        return
+    end
+
+    local xml = table.concat(out, "\n")
+    local elapsed = os.clock() - t0
+    local okw, err = pcall(function() writefile(fileName, xml) end)
+
+    if not okw then
+        notify("File write failed: " .. tostring(err), "err")
+        setStatus("Error", Color3.fromRGB(231, 76, 60))
+        setStat("status", "Failed")
+        finish(false, tostring(err))
+        return
+    end
+
+    notify(("Map dumped in %.1fs (%d bytes)"):format(elapsed, #xml), "ok")
+    setStatus("Completed", Color3.fromRGB(46, 204, 113))
+    setStat("status", "Complete")
+    finish(true, fileName)
+end
+
+main()
